@@ -291,12 +291,30 @@ class ArraySchemaBackend(PandasSchemaBackend):
         parser_results: list[CoreParserResult] = []
         for parser_index, parser in enumerate(schema.parsers):
             parser_args = [None] if is_field(check_obj) else [schema.name]
-            result = self.run_parser(
-                check_obj,
-                parser,
-                parser_index,
-                *parser_args,
-            )
+            try:
+                result = self.run_parser(
+                    check_obj,
+                    parser,
+                    parser_index,
+                    *parser_args,
+                )
+            except ParserError as exc:
+                # Surface parser failures through the same SchemaError
+                # channel as check/coercion failures so they carry the
+                # column name and row labels and participate in lazy
+                # validation instead of aborting the whole run.
+                raise SchemaError(
+                    schema=schema,
+                    data=check_obj,
+                    message=str(exc),
+                    failure_cases=exc.failure_cases,
+                    check=f"parser('{parser.name}')",
+                    parser=parser,
+                    parser_index=parser_index,
+                    parser_output=exc.parser_output,
+                    reason_code=SchemaErrorReason.SCHEMA_COMPONENT_PARSER,
+                    column_name=getattr(schema, "name", None),
+                ) from exc
             if is_field(check_obj):
                 check_obj = result.parser_output
             else:
